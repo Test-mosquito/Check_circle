@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Vector-Borne Disease Survey Area Map</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+body, html { margin: 0; padding: 0; height: 100%; font-family: Arial, sans-serif; overflow: hidden; }
+#app-container { display: flex; height: 100vh; width: 100vw; flex-direction: row; }
+#sidebar { width: 360px; padding: 15px; background: #f8f9fa; box-shadow: 2px 0 5px rgba(0,0,0,0.1); z-index: 1000; overflow-y: auto; box-sizing: border-box; }
+#main-content { flex: 1; height: 100%; position: relative; }
+#map { width: 100%; height: 100%; }
+
+#datatable-view {
+display: none;
+width: 100%;
+height: 100%;
+padding: 20px;
+box-sizing: border-box;
+background: #fff;
+overflow-y: auto;
+}
+
+h2 { font-size: 18px; margin-top: 0; margin-bottom: 10px; }
+h3 { font-size: 15px; margin-top: 15px; margin-bottom: 8px; }
+
+.mode-selector { display: flex; background: #e9ecef; border-radius: 6px; padding: 3px; margin-bottom: 12px; gap: 2px; }
+.mode-btn { flex: 1; padding: 8px 1px; border: none; background: transparent; font-size: 10px; font-weight: bold; cursor: pointer; border-radius: 4px; text-align: center; }
+.mode-btn.active-record { background: #28a745; color: white; }
+.mode-btn.active-check { background: #17a2b8; color: white; }
+.mode-btn.active-table { background: #6f42c1; color: white; }
+.mode-btn.active-hospital { background: #e83e8c; color: white; }
+
+.form-group { margin-bottom: 10px; }
+.form-group label { display: block; margin-bottom: 3px; font-weight: bold; font-size: 12px; }
+.form-group input, .form-group select { width: 100%; padding: 6px 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
+
+.address-container { display: flex; gap: 5px; }
+.address-container input { flex: 1; background-color: #e9ecef; }
+.btn-unlock { padding: 6px 10px; font-size: 11px; background: #ffc107; border: 1px solid #d39e00; border-radius: 4px; cursor: pointer; font-weight: bold; white-space: nowrap; }
+
+.tab-container { display: flex; margin-bottom: 8px; border-bottom: 1px solid #ccc; }
+.tab-btn { flex: 1; padding: 6px 2px; font-size: 11px; text-align: center; background: #e9ecef; border: none; cursor: pointer; outline: none; }
+.tab-btn.active { background: #007bff; color: white; font-weight: bold; }
+.tab-content { display: none; background: #fff; padding: 8px; border: 1px solid #ccc; border-top: none; margin-bottom: 10px; border-radius: 0 0 4px 4px; }
+.tab-content.active { display: block; }
+
+.btn-submit { width: 100%; padding: 10px; background-color: #28a745; color: white; border: none; cursor: pointer; font-size: 14px; border-radius: 4px; font-weight: bold; margin-top: 5px; }
+.btn-clear-temp { width: 100%; padding: 8px; background-color: #6c757d; color: white; border: none; cursor: pointer; font-size: 12px; border-radius: 4px; margin-top: 5px; }
+
+.case-list { margin-top: 15px; border-top: 1px solid #ccc; padding-top: 10px; }
+.case-item { background: white; padding: 8px; margin-bottom: 8px; border-radius: 4px; border-left: 4px solid #007bff; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
+
+.hospital-card { background: white; padding: 10px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #ddd; font-size: 12px; cursor: pointer; transition: 0.2s; }
+.hospital-card:hover { border-color: #e83e8c; background: #fcf8fa; }
+.badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; color: white; }
+.badge-success { background: #28a745; }
+.badge-warning { background: #ffc107; color: #000; }
+.badge-danger { background: #dc3545; }
+
+.search-results { max-height: 100px; overflow-y: auto; font-size: 12px; margin-top: 5px; border: 1px solid #ddd; display: none; }
+.search-item { padding: 6px; cursor: pointer; border-bottom: 1px solid #eee; }
+
+.excel-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+.excel-table th, .excel-table td { border: 1px solid #dee2e6; padding: 8px 12px; text-align: left; }
+.excel-table th { background-color: #f8f9fa; cursor: pointer; user-select: none; }
+.excel-table th:hover { background-color: #e2e6ea; }
+.excel-table tr:nth-child(even) { background-color: #f9f9f9; }
+
+@media (max-width: 768px) {
+#app-container { flex-direction: column; }
+#sidebar { width: 100%; height: 48vh; padding: 10px; }
+#main-content { width: 100%; height: 52vh; }
+}
+</style>
+</head>
+<body>
+
+<div id="app-container">
+<div id="sidebar">
+<h2>Mosquito Survey System</h2>
+
+<div class="mode-selector">
+<button class="mode-btn active-record" id="btnModeRecord" onclick="switchMode('record')">📝 Register</button>
+<button class="mode-btn" id="btnModeCheck" onclick="switchMode('check')">🔍 Field Check</button>
+<button class="mode-btn" id="btnModeHospital" onclick="switchMode('hospital')">🏥 Hospital</button>
+<button class="mode-btn" id="btnModeTable" onclick="switchMode('table')">📊 Table</button>
+</div>
+
+<div id="sidebarControls">
+<div id="modeTip" style="font-size: 11px; color: #555; margin-bottom: 10px; background: #e7f5ff; padding: 6px; border-radius: 4px;">
+<b>Register Mode:</b> Data saved to Google Sheets & permanently shown on map.
+</div>
+
+<div id="recordOnlyFields">
+<div class="form-group">
+<label for="caseNo">Case Number:</label>
+<input type="text" id="caseNo" placeholder="e.g. DENGUE-2026-001">
+</div>
+<div class="form-group">
+<label for="surveyDate">Survey Date:</label>
+<input type="date" id="surveyDate">
+</div>
+<div class="form-group">
+<label for="surveyScope">Survey Status (Scope):</label>
+<select id="surveyScope">
+<option value="full">Completed Full Survey (100m + 250m)</option>
+<option value="partial">Partial Survey Only (100m Core Only)</option>
+</select>
+</div>
+</div>
+
+<div id="locationControls">
+<label style="font-size: 12px;"><b>Select Location Method:</b></label>
+<div class="tab-container">
+<button class="tab-btn active" onclick="switchTab('address', event)">1. Address</button>
+<button class="tab-btn" onclick="switchTab('mapClick', event)">2. Map Click</button>
+<button class="tab-btn" onclick="switchTab('latlng', event)">3. Lat / Lng</button>
+</div>
+
+<div id="tab-address" class="tab-content active">
+<div class="form-group">
+<label for="inputAddress">Search Address / Landmark:</label>
+<input type="text" id="inputAddress" placeholder="e.g. Mong Kok Police Station">
+<button type="button" onclick="searchAddress()" style="margin-top: 5px; padding: 5px; font-size: 12px; background: #17a2b8; color: white; border: none; border-radius: 3px; cursor: pointer; width: 100%;">Search Address</button>
+</div>
+<div id="searchResults" class="search-results"></div>
+</div>
+
+<div id="tab-mapClick" class="tab-content">
+<p style="margin: 0; font-size: 11px; color: #555;">Click on the map below to set location.</p>
+<div id="selectedLatLngTip" style="margin-top: 3px; font-size: 11px; color: #007bff;">Selected: None</div>
+</div>
+
+<div id="tab-latlng" class="tab-content">
+<div class="form-group">
+<label for="inputLat">Latitude:</label>
+<input type="number" step="any" id="inputLat" placeholder="22.xxxxxx" onchange="handleLatLngManualInput()">
+</div>
+<div class="form-group">
+<label for="inputLng">Longitude:</label>
+<input type="number" step="any" id="inputLng" placeholder="114.xxxxxx" onchange="handleLatLngManualInput()">
+</div>
+</div>
+
+<div class="form-group">
+<label for="fullAddress">Full Address (Auto-filled / Locked):</label>
+<div class="address-container">
+<input type="text" id="fullAddress" placeholder="Auto-filled by location method..." readonly>
+<button type="button" class="btn-unlock" id="btnUnlockAddress" onclick="toggleAddressLock()">🔒 Edit</button>
+</div>
+</div>
+
+<button class="btn-submit" id="btnSubmit" onclick="handleSubmit()">Save Case to Cloud</button>
+<button class="btn-clear-temp" id="btnClearTemp" onclick="clearTempLayers()" style="display:none;">Clear Temp Check Rings</button>
+</div>
+
+<div class="case-list" id="recentCasesBlock">
+<h3 style="font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
+Recent 5 Surveys <small style="font-size: 10px; color: #666;">(&lt;= 22 Days)</small>
+</h3>
+<div id="recordsContainer">Loading active cases...</div>
+</div>
+</div>
+
+<div id="sidebarHospitalView" style="display: none;">
+<h3>🏥 Hospital Routine Checks</h3>
+<p style="font-size: 11px; color: #555; margin-bottom: 12px;">
+Shows survey coverage (250m zone) around key hospitals within the last 22 days.
+</p>
+<div id="hospitalListContainer">Loading hospital analysis...</div>
+</div>
+
+<div id="sidebarTableInfo" style="display: none; font-size: 12px; color: #555;">
+<p><b>📊 Data Table View Active</b></p>
+<p>Click column headers to sort records.</p>
+</div>
+</div>
+
+<div id="main-content">
+<div id="map"></div>
+<div id="datatable-view">
+<h2 style="margin-bottom: 5px;">Survey Records Database</h2>
+<table class="excel-table">
+<thead>
+<tr>
+<th onclick="sortTable('caseNo')">Case No <span id="sort-caseNo">⇅</span></th>
+<th onclick="sortTable('surveyDate')">Survey Date <span id="sort-surveyDate">⇅</span></th>
+<th onclick="sortTable('district')">HK District <span id="sort-district">⇅</span></th>
+<th>Scope</th>
+<th>Address</th>
+<th>Status</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody id="tableBody"></tbody>
+</table>
+</div>
+</div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+
+<script>
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx7_0KfCe5s9jDdlSqOjIJ3xrXQ37ffkNe7PhTvp0yuNaCSZlrRLocJtUYiGBl8x0R_6w/exec';
+
+const map = L.map('map').setView([22.3193, 114.1694], 13);
+
+const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' });
+const cartoDBLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '© CARTO' });
+
+const hkGovBase = L.tileLayer('https://mapapi.geodata.gov.hk/gs/api/v1.0.0/xyz/basemap/WGS84/{z}/{x}/{y}.png', { maxZoom: 20, attribution: '© HKSARG Geodata Store' });
+const hkGovLabel = L.tileLayer('https://mapapi.geodata.gov.hk/gs/api/v1.0.0/xyz/label/hk/tc/WGS84/{z}/{x}/{y}.png', { maxZoom: 20 });
+const hkGovMapLayer = L.layerGroup([hkGovBase, hkGovLabel]);
+
+osmLayer.addTo(map);
+L.control.layers({ "OpenStreetMap": osmLayer, "CartoDB Voyager": cartoDBLayer, "HKGov Map": hkGovMapLayer }).addTo(map);
+
+document.getElementById('surveyDate').valueAsDate = new Date();
+
+let casesData = [];
+let hospitalsData = [];
+let currentLayers = [];
+let tempCheckLayers = [];
+let currentMode = 'record';
+let activeTab = 'address';
+let clickedPoint = null;
+let tempMarker = null;
+let isAddressUnlocked = false;
+
+let currentSortColumn = 'surveyDate';
+let isSortAsc = false;
+
+const hkDistricts = [
+"Central & Western", "Wan Chai", "Eastern", "Southern", "Yau Tsim Mong", "Sham Shui Po",
+"Kowloon City", "Wong Tai Sin", "Kwun Tong", "Kwai Tsing", "Tsuen Wan", "Tuen Mun",
+"Yuen Long", "North", "Tai Po", "Sha Tin", "Sai Kung", "Islands"
+];
+
+function detectDistrict(address) {
+if (!address) return "Unspecified";
+for (let d of hkDistricts) {
+if (address.toLowerCase().includes(d.toLowerCase())) return d;
+}
+return "Unspecified";
+}
+
+function toggleAddressLock() {
+const addressInput = document.getElementById('fullAddress');
+const unlockBtn = document.getElementById('btnUnlockAddress');
+
+if (!isAddressUnlocked) {
+if (confirm("Confirm Manual Edit?")) {
+isAddressUnlocked = true;
+addressInput.removeAttribute('readonly');
+addressInput.style.backgroundColor = '#fff';
+unlockBtn.innerText = '🔓 Lock';
+}
+} else {
+isAddressUnlocked = false;
+addressInput.setAttribute('readonly', 'readonly');
+addressInput.style.backgroundColor = '#e9ecef';
+unlockBtn.innerText = '🔒 Edit';
+}
+}
+
+function fetchRoughDistrictAddress(lat, lng) {
+if (isAddressUnlocked) return;
+const addressInput = document.getElementById('fullAddress');
+addressInput.value = "Fetching district info...";
+
+fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+.then(res => res.json())
+.then(data => {
+if (data && data.address) {
+const sub = data.address.suburb || data.address.district || data.address.town || "";
+addressInput.value = sub ? `${sub}, Hong Kong` : `${data.display_name.split(',')[0]}, Hong Kong`;
+} else {
+addressInput.value = `Location near ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+}
+})
+.catch(() => { addressInput.value = `Location near ${lat.toFixed(4)}, ${lng.toFixed(4)}`; });
+}
+
+function switchMode(mode) {
+currentMode = mode;
+const btns = ['btnModeRecord', 'btnModeCheck', 'btnModeHospital', 'btnModeTable'];
+btns.forEach(id => document.getElementById(id).className = 'mode-btn');
+
+const sidebarControls = document.getElementById('sidebarControls');
+const sidebarHospitalView = document.getElementById('sidebarHospitalView');
+const sidebarTableInfo = document.getElementById('sidebarTableInfo');
+const mapView = document.getElementById('map');
+const tableView = document.getElementById('datatable-view');
+
+const locationControls = document.getElementById('locationControls');
+const recordOnlyFields = document.getElementById('recordOnlyFields');
+const recentCasesBlock = document.getElementById('recentCasesBlock');
+
+if (mode === 'record') {
+document.getElementById('btnModeRecord').className = 'mode-btn active-record';
+sidebarControls.style.display = 'block';
+sidebarHospitalView.style.display = 'none';
+sidebarTableInfo.style.display = 'none';
+mapView.style.display = 'block';
+tableView.style.display = 'none';
+locationControls.style.display = 'block';
+recordOnlyFields.style.display = 'block';
+recentCasesBlock.style.display = 'block';
+map.invalidateSize();
+renderMapAndList();
+} else if (mode === 'check') {
+document.getElementById('btnModeCheck').className = 'mode-btn active-check';
+sidebarControls.style.display = 'block';
+sidebarHospitalView.style.display = 'none';
+sidebarTableInfo.style.display = 'none';
+mapView.style.display = 'block';
+tableView.style.display = 'none';
+locationControls.style.display = 'block';
+recordOnlyFields.style.display = 'none';
+recentCasesBlock.style.display = 'none';
+map.invalidateSize();
+renderMapAndList();
+} else if (mode === 'hospital') {
+document.getElementById('btnModeHospital').className = 'mode-btn active-hospital';
+sidebarControls.style.display = 'none';
+sidebarHospitalView.style.display = 'block';
+sidebarTableInfo.style.display = 'none';
+mapView.style.display = 'block';
+tableView.style.display = 'none';
+map.invalidateSize();
+analyzeHospitalsCoverage();
+} else if (mode === 'table') {
+document.getElementById('btnModeTable').className = 'mode-btn active-table';
+sidebarControls.style.display = 'none';
+sidebarHospitalView.style.display = 'none';
+sidebarTableInfo.style.display = 'block';
+mapView.style.display = 'none';
+tableView.style.display = 'block';
+renderExcelTable();
+}
+}
+
+function switchTab(tabName, event) {
+activeTab = tabName;
+document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+event.target.classList.add('active');
+document.getElementById(`tab-${tabName}`).classList.add('active');
+}
+
+function getDaysDiff(fromDateStr) {
+const surveyDate = new Date(fromDateStr);
+const today = new Date();
+surveyDate.setHours(0,0,0,0);
+today.setHours(0,0,0,0);
+return Math.floor((today - surveyDate) / (1000 * 60 * 60 * 24));
+}
+
+map.on('click', function(e) {
+if (activeTab === 'mapClick' && (currentMode === 'record' || currentMode === 'check')) {
+clickedPoint = e.latlng;
+document.getElementById('selectedLatLngTip').innerText = `Selected: ${clickedPoint.lat.toFixed(5)}, ${clickedPoint.lng.toFixed(5)}`;
+if (tempMarker) map.removeLayer(tempMarker);
+tempMarker = L.marker(clickedPoint).addTo(map).bindPopup("Selected Location").openPopup();
+fetchRoughDistrictAddress(clickedPoint.lat, clickedPoint.lng);
+if (currentMode === 'check') performTemporaryCheck(clickedPoint.lat, clickedPoint.lng);
+}
+});
+
+function handleLatLngManualInput() {
+const lat = parseFloat(document.getElementById('inputLat').value);
+const lng = parseFloat(document.getElementById('inputLng').value);
+if (!isNaN(lat) && !isNaN(lng)) {
+clickedPoint = { lat: lat, lng: lng };
+map.setView([lat, lng], 16);
+if (tempMarker) map.removeLayer(tempMarker);
+tempMarker = L.marker(clickedPoint).addTo(map).bindPopup("Manual Lat/Lng").openPopup();
+fetchRoughDistrictAddress(lat, lng);
+}
+}
+
+function searchAddress() {
+const query = document.getElementById('inputAddress').value.trim();
+if (!query) { alert("Please enter an address!"); return; }
+const resultsContainer = document.getElementById('searchResults');
+resultsContainer.style.display = 'block';
+resultsContainer.innerHTML = 'Searching...';
+
+fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ', Hong Kong')}`)
+.then(res => res.json())
+.then(data => {
+resultsContainer.innerHTML = '';
+if (data.length === 0) { resultsContainer.innerHTML = '<div class="search-item">No address found</div>'; return; }
+data.forEach(item => {
+const div = document.createElement('div');
+div.className = 'search-item';
+div.innerText = item.display_name;
+div.onclick = function() {
+clickedPoint = { lat: parseFloat(item.lat), lng: parseFloat(item.lon) };
+map.setView([clickedPoint.lat, clickedPoint.lng], 16);
+if (tempMarker) map.removeLayer(tempMarker);
+tempMarker = L.marker(clickedPoint).addTo(map).bindPopup(item.display_name).openPopup();
+resultsContainer.style.display = 'none';
+document.getElementById('inputAddress').value = item.display_name;
+if (!isAddressUnlocked) document.getElementById('fullAddress').value = item.display_name;
+if (currentMode === 'check') performTemporaryCheck(clickedPoint.lat, clickedPoint.lng);
+};
+resultsContainer.appendChild(div);
+});
+});
+}
+
+function getTargetCoordinates() {
+if (activeTab === 'address' || activeTab === 'mapClick') {
+if (!clickedPoint) { alert("Please select a location!"); return null; }
+return clickedPoint;
+} else if (activeTab === 'latlng') {
+const lat = parseFloat(document.getElementById('inputLat').value);
+const lng = parseFloat(document.getElementById('inputLng').value);
+if (isNaN(lat) || isNaN(lng)) { alert("Enter valid Lat/Lng!"); return null; }
+return { lat: lat, lng: lng };
+}
+return null;
+}
+
+function performTemporaryCheck(lat, lng) {
+clearTempLayers();
+const c100 = L.circle([lat, lng], { color: '#0056b3', fillColor: '#007bff', fillOpacity: 0.2, radius: 100, dashArray: '3, 3' }).addTo(map);
+const c250 = L.circle([lat, lng], { color: '#17a2b8', fillColor: '#17a2b8', fillOpacity: 0.1, radius: 250, dashArray: '5, 5' }).addTo(map);
+tempCheckLayers.push(c100, c250);
+}
+
+function clearTempLayers() {
+tempCheckLayers.forEach(layer => map.removeLayer(layer));
+tempCheckLayers = [];
+}
+
+function handleSubmit() {
+const targetCoords = getTargetCoordinates();
+if (!targetCoords) return;
+if (currentMode === 'check') {
+performTemporaryCheck(targetCoords.lat, targetCoords.lng);
+} else {
+submitCaseToCloud(targetCoords.lat, targetCoords.lng);
+}
+}
+
+function submitCaseToCloud(lat, lng) {
+const caseNo = document.getElementById('caseNo').value.trim();
+const surveyDate = document.getElementById('surveyDate').value;
+const scope = document.getElementById('surveyScope').value;
+const isCompleted = scope === 'full';
+const fullAddress = document.getElementById('fullAddress').value.trim() || 'N/A';
+
+if (!caseNo || !surveyDate) { alert('Please fill in Case No and Date!'); return; }
+
+const btnSubmit = document.getElementById('btnSubmit');
+btnSubmit.disabled = true;
+btnSubmit.innerText = 'Saving...';
+
+fetch(GOOGLE_SCRIPT_URL, {
+method: 'POST',
+body: JSON.stringify({ case_no: caseNo, survey_date: surveyDate, full_address: fullAddress, lat: lat, lng: lng, is_completed: isCompleted })
+})
+.then(res => res.json())
+.then(() => {
+btnSubmit.disabled = false;
+btnSubmit.innerText = 'Save Case to Cloud';
+if (tempMarker) map.removeLayer(tempMarker);
+clickedPoint = null;
+document.getElementById('caseNo').value = '';
+loadCasesFromCloud();
+});
+}
+
+function analyzeHospitalsCoverage() {
+currentLayers.forEach(layer => map.removeLayer(layer));
+currentLayers = [];
+
+const container = document.getElementById('hospitalListContainer');
+container.innerHTML = '';
+
+if (hospitalsData.length === 0) {
+container.innerHTML = '<small style="color:#777;">No hospital data found in Google Sheet ("Hospitals" tab).</small>';
+return;
+}
+
+const activeCases = casesData.filter(item => {
+const days = getDaysDiff(item.surveyDate);
+return days >= 0 && days <= 22;
+});
+
+let casePolygons = activeCases.map(c => {
+const radius = c.isCompleted ? 0.25 : 0.1;
+return turf.buffer(turf.point([c.lng, c.lat]), radius, { units: 'kilometers' });
+});
+
+let combinedSurveyArea = null;
+if (casePolygons.length > 0) {
+combinedSurveyArea = casePolygons[0];
+for (let i = 1; i < casePolygons.length; i++) {
+combinedSurveyArea = turf.union(combinedSurveyArea, casePolygons[i]);
+}
+}
+
+hospitalsData.forEach(hosp => {
+const hospPt = turf.point([hosp.lng, hosp.lat]);
+const hosp250Circle = turf.buffer(hospPt, 0.25, { units: 'kilometers' });
+const hospAreaSize = turf.area(hosp250Circle);
+
+let overlapRatio = 0;
+let lastSurveyDates = [];
+
+const hCircle = L.circle([hosp.lat, hosp.lng], { color: '#e83e8c', fillColor: '#e83e8c', fillOpacity: 0.15, radius: 250, weight: 2, dashArray: '4,4' }).addTo(map);
+const hMarker = L.marker([hosp.lat, hosp.lng]).addTo(map).bindPopup(`<b>🏥 ${hosp.hospital_name}</b><br>250m Routine Survey Zone`);
+currentLayers.push(hCircle, hMarker);
+
+if (combinedSurveyArea) {
+const intersection = turf.intersect(hosp250Circle, combinedSurveyArea);
+if (intersection) {
+const intersectArea = turf.area(intersection);
+overlapRatio = (intersectArea / hospAreaSize) * 100;
+}
+}
+
+activeCases.forEach(c => {
+const dist = turf.distance(hospPt, turf.point([c.lng, c.lat]), { units: 'meters' });
+if (dist <= 500) {
+lastSurveyDates.push(c.surveyDate);
+}
+});
+
+lastSurveyDates = [...new Set(lastSurveyDates)].sort().reverse();
+
+let statusBadge = '';
+if (overlapRatio > 90) {
+statusBadge = `<span class="badge badge-success">Completed (${overlapRatio.toFixed(1)}%)</span>`;
+} else if (overlapRatio >= 80) {
+statusBadge = `<span class="badge badge-warning">Partial (${overlapRatio.toFixed(1)}%)</span>`;
+} else {
+statusBadge = `<span class="badge badge-danger">Incomplete (${overlapRatio.toFixed(1)}%)</span>`;
+}
+
+const card = document.createElement('div');
+card.className = 'hospital-card';
+card.innerHTML = `
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+<strong>🏥 ${hosp.hospital_name}</strong>
+${statusBadge}
+</div>
+<div style="color:#555; font-size:11px;">
+<b>Surveys in last 22 days:</b> ${lastSurveyDates.length > 0 ? lastSurveyDates.join(', ') : 'None'}<br>
+<b>250m Coverage Ratio:</b> ${overlapRatio.toFixed(1)}%
+</div>
+`;
+
+card.onclick = function() {
+map.flyTo([hosp.lat, hosp.lng], 16);
+hMarker.openPopup();
+};
+
+container.appendChild(card);
+});
+}
+
+function loadCasesFromCloud() {
+fetch(GOOGLE_SCRIPT_URL)
+.then(res => res.json())
+.then(data => {
+casesData = data.map(item => ({
+rowIndex: item.row_id,
+caseNo: item.case_no,
+surveyDate: item.survey_date,
+fullAddress: item.full_address,
+district: detectDistrict(item.full_address),
+lat: parseFloat(item.lat),
+lng: parseFloat(item.lng),
+isCompleted: item.is_completed === true || item.is_completed === 'true'
+}));
+renderMapAndList();
+if (currentMode === 'hospital') analyzeHospitalsCoverage();
+if (currentMode === 'table') renderExcelTable();
+});
+
+fetch(`${GOOGLE_SCRIPT_URL}?action=getHospitals`)
+.then(res => res.json())
+.then(data => {
+hospitalsData = data;
+if (currentMode === 'hospital') analyzeHospitalsCoverage();
+});
+}
+
+function renderMapAndList() {
+if (currentMode === 'hospital') return;
+
+currentLayers.forEach(layer => map.removeLayer(layer));
+currentLayers = [];
+
+const recordsContainer = document.getElementById('recordsContainer');
+recordsContainer.innerHTML = '';
+
+const validCases = casesData
+.filter(item => getDaysDiff(item.surveyDate) <= 22)
+.sort((a, b) => new Date(b.surveyDate) - new Date(a.surveyDate));
+
+validCases.forEach((item) => {
+const circle100 = L.circle([item.lat, item.lng], { color: 'red', fillColor: '#f03', fillOpacity: 0.3, radius: 100 }).addTo(map);
+currentLayers.push(circle100);
+
+if (item.isCompleted) {
+const circle250 = L.circle([item.lat, item.lng], { color: 'orange', fillColor: '#ffc107', fillOpacity: 0.15, dashArray: '5, 5', radius: 250 }).addTo(map);
+currentLayers.push(circle250);
+}
+
+const marker = L.marker([item.lat, item.lng]).addTo(map);
+marker.bindPopup(`<b>Case No: ${item.caseNo}</b><br><b>Address:</b> ${item.fullAddress}<br><b>Date:</b> ${item.surveyDate}`);
+currentLayers.push(marker);
+});
+
+validCases.slice(0, 5).forEach((item) => {
+const div = document.createElement('div');
+div.className = 'case-item';
+div.innerHTML = `
+<div>
+<strong>${item.caseNo}</strong><br>
+<small style="color:#555;">${item.fullAddress}</small><br>
+Date: ${item.surveyDate}
+</div>
+`;
+recordsContainer.appendChild(div);
+});
+}
+
+function sortTable(column) {
+if (currentSortColumn === column) {
+isSortAsc = !isSortAsc;
+} else {
+currentSortColumn = column;
+isSortAsc = true;
+}
+
+document.querySelectorAll('[id^="sort-"]').forEach(span => span.innerText = '⇅');
+const sortSpan = document.getElementById(`sort-${column}`);
+if (sortSpan) {
+sortSpan.innerText = isSortAsc ? '▲' : '▼';
+}
+
+casesData.sort((a, b) => {
+let valA = a[column];
+let valB = b[column];
+
+if (column === 'surveyDate') {
+valA = new Date(valA);
+valB = new Date(valB);
+} else if (typeof valA === 'string') {
+valA = valA.toLowerCase();
+valB = valB.toLowerCase();
+}
+
+if (valA < valB) return isSortAsc ? -1 : 1;
+if (valA > valB) return isSortAsc ? 1 : -1;
+return 0;
+});
+
+renderExcelTable();
+}
+
+function renderExcelTable() {
+const tbody = document.getElementById('tableBody');
+tbody.innerHTML = '';
+
+if (casesData.length === 0) {
+tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">No survey records found.</td></tr>';
+return;
+}
+
+casesData.forEach(item => {
+const daysDiff = getDaysDiff(item.surveyDate);
+const tr = document.createElement('tr');
+tr.innerHTML = `
+<td><b>${item.caseNo}</b></td>
+<td>${item.surveyDate}</td>
+<td>${item.district}</td>
+<td>${item.isCompleted ? 'Full (250m)' : 'Partial (100m)'}</td>
+<td>${item.fullAddress}</td>
+<td>${daysDiff <= 22 ? '<span style="color:green; font-weight:bold;">Active</span>' : '<span style="color:gray;">Expired</span>'}</td>
+<td><button onclick="deleteCase(${item.rowIndex}, '${item.caseNo}')" style="background:#dc3545; color:white; border:none; padding:3px 8px; border-radius:3px; cursor:pointer;">Delete</button></td>
+`;
+tbody.appendChild(tr);
+});
+}
+
+function deleteCase(rowIndex, caseNo) {
+if (!confirm(`Are you sure you want to delete case: ${caseNo}?`)) return;
+
+fetch(`${GOOGLE_SCRIPT_URL}?action=delete&rowIndex=${rowIndex}`, { method: 'POST' })
+.then(res => res.json())
+.then(() => {
+loadCasesFromCloud();
+});
+}
+
+loadCasesFromCloud();
+</script>
+</body>
+</html>
