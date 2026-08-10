@@ -140,11 +140,11 @@ h3 { font-size: 15px; margin-top: 15px; margin-bottom: 8px; }
 
 <div id="tab-hospital" class="tab-content">
 <div class="form-group">
-<label for="selectTeamRegion">Select Team / Region (Column G):</label>
+<label for="selectTeamRegion">Filter Team:</label>
 <select id="selectTeamRegion" onchange="filterHospitalsByRegion()">
-<option value="ALL">-- All Teams / Regions --</option>
+<option value="ALL">-- All Teams --</option>
 <option value="HK">HK (Hong Kong Island)</option>
-<option value="KLN">Kln (Kowloon)</option>
+<option value="KLN">KLN (Kowloon)</option>
 <option value="NTW">NTW (New Territories West)</option>
 <option value="NTE">NTE (New Territories East)</option>
 </select>
@@ -187,7 +187,7 @@ h3 { font-size: 15px; margin-top: 15px; margin-bottom: 8px; }
 
 <div class="case-list" id="recentCasesBlock">
 <h3 style="font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
-Recent 5 Surveys <small style="font-size: 10px; color: #666;">(&lt;= 22 Days)</small>
+Recent Surveys <small style="font-size: 10px; color: #666;">(&lt;= 22 Days Active)</small>
 </h3>
 <div id="recordsContainer">Loading active cases...</div>
 </div>
@@ -196,7 +196,7 @@ Recent 5 Surveys <small style="font-size: 10px; color: #666;">(&lt;= 22 Days)</s
 <div id="sidebarHospitalView" style="display: none;">
 <h3>🏥 Hospital Routine Checks</h3>
 <p style="font-size: 11px; color: #555; margin-bottom: 8px;">
-Filter hospitals by Team / Region (Column G):
+Filter hospitals by Responsible Team:
 </p>
 
 <div class="region-filter-bar">
@@ -212,23 +212,23 @@ Filter hospitals by Team / Region (Column G):
 
 <div id="sidebarTableInfo" style="display: none; font-size: 12px; color: #555;">
 <p><b>📊 Data Table View Active</b></p>
-<p>Click column headers to sort records.</p>
+<p>Only active cases (&lt;= 22 days) are displayed. Sorted by latest Survey Date by default.</p>
 </div>
 </div>
 
 <div id="main-content">
 <div id="map"></div>
 <div id="datatable-view">
-<h2 style="margin-bottom: 5px;">Survey Records Database</h2>
+<h2 style="margin-bottom: 5px;">Active Survey Records Database</h2>
 <table class="excel-table">
 <thead>
 <tr>
 <th onclick="sortTable('caseNo')">Case No <span id="sort-caseNo">⇅</span></th>
-<th onclick="sortTable('surveyDate')">Survey Date <span id="sort-surveyDate">⇅</span></th>
+<th onclick="sortTable('surveyDate')">Survey Date <span id="sort-surveyDate">▼</span></th>
 <th onclick="sortTable('district')">HK District <span id="sort-district">⇅</span></th>
 <th>Scope</th>
 <th>Address</th>
-<th>Status</th>
+<th>Days Remaining</th>
 <th>Action</th>
 </tr>
 </thead>
@@ -242,7 +242,8 @@ Filter hospitals by Team / Region (Column G):
 <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
 
 <script>
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx7_0KfCe5s9jDdlSqOjIJ3xrXQ37ffkNe7PhTvp0yuNaCSZlrRLocJtUYiGBl8x0R_6w/exec';
+// ⚠️ 請替換為您測試成功的 Google Apps Script Web App URL
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwJiwU-HxwGCYMketyZS4D4YQcpW2enbaIJY7SBvnRRaGr7hvrpXAWHgW2YejQQT7-O8g/exec';
 
 const map = L.map('map').setView([22.3193, 114.1694], 13);
 
@@ -269,6 +270,7 @@ let tempMarker = null;
 let isAddressUnlocked = false;
 let selectedHospitalViewRegion = 'ALL';
 
+// 預設排序策略：按 Survey Date 降序（最新日期在前）
 let currentSortColumn = 'surveyDate';
 let isSortAsc = false;
 
@@ -279,82 +281,6 @@ const hkDistricts = [
 "中西區", "灣仔區", "東區", "南區", "油尖旺區", "深水埗區", "九龍城區", "黃大仙區",
 "觀塘區", "葵青區", "荃灣區", "屯門區", "元朗區", "北區", "大埔區", "沙田區", "西貢區", "離島區"
 ];
-
-// 通用屬性解析器：相容陣列與多種 Key 名稱
-function getPropByKeys(obj, possibleKeys, indexFallback) {
-if (!obj) return "";
-if (Array.isArray(obj)) return obj[indexFallback] || "";
-
-const keys = Object.keys(obj);
-for (let k of keys) {
-const cleanKey = k.trim().toLowerCase();
-for (let pk of possibleKeys) {
-if (cleanKey === pk.toLowerCase() || cleanKey.includes(pk.toLowerCase())) {
-return obj[k];
-}
-}
-}
-if (keys.length > indexFallback) return obj[keys[indexFallback]];
-return "";
-}
-
-// Column A: 醫院名稱
-function getHospitalName(h) {
-const val = getPropByKeys(h, ["hospital name", "hospital", "A", "name"], 0);
-return String(val || "Unknown Hospital").trim();
-}
-
-// Column B: 緯度
-function getHospitalLat(h) {
-const val = getPropByKeys(h, ["latitude", "lat", "B"], 1);
-return parseFloat(val);
-}
-
-// Column C: 經度
-function getHospitalLng(h) {
-const val = getPropByKeys(h, ["longitude", "lng", "lon", "C"], 2);
-return parseFloat(val);
-}
-
-// Column F: 香港 18 區分區 (中文)
-function getHospitalDistrict(h) {
-const val = getPropByKeys(h, ["district", "district_zh", "18區", "分區", "district (zh)", "F"], 5);
-return String(val || "").trim();
-}
-
-// Column G: Team / Region 區域 (HK, KLN, NTE, NTW)
-function getHospitalRegion(h) {
-let val = getPropByKeys(h, ["region", "team", "group", "category", "cluster", "G"], 6);
-let strVal = String(val || "").trim().toUpperCase();
-
-const validRegions = ["HK", "KLN", "NTW", "NTE", "KOWLOON", "NT"];
-if (validRegions.some(r => strVal.includes(r))) {
-return strVal;
-}
-
-if (typeof h === 'object' && !Array.isArray(h)) {
-for (let k in h) {
-let cellVal = String(h[k] || "").trim().toUpperCase();
-if (validRegions.includes(cellVal)) {
-return cellVal;
-}
-}
-}
-
-return strVal;
-}
-
-// Column H: 中文地址
-function getHospitalAddressZh(h) {
-const val = getPropByKeys(h, ["address_zh", "chinese address", "中文地址", "地址", "address (zh)", "H"], 7);
-return String(val || "").trim();
-}
-
-// Column I: 英文地址
-function getHospitalAddressEn(h) {
-const val = getPropByKeys(h, ["address_en", "english address", "英文地址", "address (en)", "I"], 8);
-return String(val || "").trim();
-}
 
 function detectDistrict(address) {
 if (!address) return "Unspecified";
@@ -451,63 +377,49 @@ document.getElementById(`tab-${tabName}`).classList.add('active');
 }
 
 function filterHospitalsByRegion() {
-const selectedRegion = document.getElementById('selectTeamRegion').value.toUpperCase().trim();
+const selectedTeam = document.getElementById('selectTeamRegion').value.toUpperCase().trim();
 const select = document.getElementById('selectHospital');
 const lbl = document.getElementById('lblSelectHospital');
 select.innerHTML = '<option value="">-- Select a Hospital --</option>';
 
 let count = 0;
 hospitalsData.forEach((h, index) => {
-const rawRegion = getHospitalRegion(h);
-const hRegion = rawRegion.toUpperCase();
-
-const isMatch = (selectedRegion === 'ALL') ||
-(hRegion === selectedRegion) ||
-(hRegion.includes(selectedRegion)) ||
-(selectedRegion === 'KLN' && (hRegion.includes('KLN') || hRegion.includes('KOWLOON')));
+const hTeam = (h.team || "").toUpperCase();
+const isMatch = (selectedTeam === 'ALL') || (hTeam === selectedTeam);
 
 if (isMatch) {
 count++;
 const opt = document.createElement('option');
 opt.value = index;
 
-const district = getHospitalDistrict(h);
-const addressZh = getHospitalAddressZh(h);
-const tagRegion = hRegion ? `[${hRegion}]` : '[Unassigned]';
-const tagDistrict = district ? `[${district}]` : '';
-const addrDisplay = addressZh ? ` - ${addressZh}` : '';
+const displayName = h.name_zh || h.name_en;
+const teamTag = h.team ? `[${h.team}]` : '';
+const districtTag = h.district ? `[${h.district}]` : '';
+const addrDisplay = h.address_zh ? ` - ${h.address_zh}` : '';
 
-opt.innerText = `${tagRegion}${tagDistrict} ${getHospitalName(h)}${addrDisplay}`;
+opt.innerText = `${teamTag}${districtTag} ${displayName}${addrDisplay}`;
 select.appendChild(opt);
 }
 });
 
 if (lbl) {
-lbl.innerText = selectedRegion === 'ALL'
+lbl.innerText = selectedTeam === 'ALL'
 ? 'Select Target Hospital:'
 : `Select Target Hospital (${count} found):`;
 }
 }
 
-function populateHospitalDropdown() {
-filterHospitalsByRegion();
-}
-
-// 核心修正：選擇醫院後讀取 H 欄 (中文地址) 與 F 欄 (分區) 組合並填入 Full Address
 function handleHospitalSelect() {
 const index = document.getElementById('selectHospital').value;
 if (index === "") return;
 
 const hosp = hospitalsData[index];
-const lat = getHospitalLat(hosp);
-const lng = getHospitalLng(hosp);
-const hospName = getHospitalName(hosp);
-const addressZh = getHospitalAddressZh(hosp); // H 欄
-const addressEn = getHospitalAddressEn(hosp); // I 欄
-const district = getHospitalDistrict(hosp); // F 欄
+const lat = hosp.lat;
+const lng = hosp.lng;
+const hospName = hosp.name_zh || hosp.name_en;
 
 if (isNaN(lat) || isNaN(lng)) {
-alert("Hospital coordinate error! Please check Latitude/Longitude values in Google Sheet.");
+alert("Hospital Latitude/Longitude coordinates error in Google Sheet!");
 return;
 }
 
@@ -516,24 +428,21 @@ map.setView([lat, lng], 16);
 
 if (tempMarker) map.removeLayer(tempMarker);
 
-const popupMsg = `<b>🏥 ${hospName}</b><br>${district ? `分區: ${district}<br>` : ''}${addressZh || addressEn || ''}`;
+const popupMsg = `<b>🏥 ${hospName} (${hosp.code || ''})</b><br>${hosp.district ? `District: ${hosp.district}<br>` : ''}${hosp.address_zh || hosp.address_en || ''}`;
 tempMarker = L.marker(clickedPoint).addTo(map).bindPopup(popupMsg).openPopup();
 
-// 讀取 H 欄中文地址與 F 欄分區拼接成完整地址
 if (!isAddressUnlocked) {
-let constructedAddress = hospName;
-
-if (addressZh) {
-constructedAddress += `, ${addressZh}`;
-} else if (addressEn) {
-constructedAddress += `, ${addressEn}`;
+let fullAddr = hospName;
+if (hosp.address_zh) {
+fullAddr += `, ${hosp.address_zh}`;
+} else if (hosp.address_en) {
+fullAddr += `, ${hosp.address_en}`;
+}
+if (hosp.district) {
+fullAddr += ` (${hosp.district})`;
 }
 
-if (district) {
-constructedAddress += ` (${district})`;
-}
-
-document.getElementById('fullAddress').value = constructedAddress;
+document.getElementById('fullAddress').value = fullAddr;
 }
 
 document.getElementById('inputLat').value = lat.toFixed(6);
@@ -606,12 +515,18 @@ if (currentMode === 'check') performTemporaryCheck(lat, lng);
 }
 }
 
+// 計算已過去的天數
 function getDaysDiff(fromDateStr) {
 const surveyDate = new Date(fromDateStr);
 const today = new Date();
 surveyDate.setHours(0,0,0,0);
 today.setHours(0,0,0,0);
 return Math.floor((today - surveyDate) / (1000 * 60 * 60 * 24));
+}
+
+// 計算剩餘有效天數 (22 - 已過天數)
+function getDaysRemaining(fromDateStr) {
+return 22 - getDaysDiff(fromDateStr);
 }
 
 function getTargetCoordinates() {
@@ -677,12 +592,12 @@ loadCasesFromCloud();
 });
 }
 
-function filterHospitalViewRegion(region) {
-selectedHospitalViewRegion = region;
-const regions = ['ALL', 'HK', 'KLN', 'NTW', 'NTE'];
-regions.forEach(r => {
-const btn = document.getElementById(`btnHospitalRegion${r}`);
-if (btn) btn.className = (r === region) ? 'region-btn active' : 'region-btn';
+function filterHospitalViewRegion(team) {
+selectedHospitalViewRegion = team;
+const teams = ['ALL', 'HK', 'KLN', 'NTW', 'NTE'];
+teams.forEach(t => {
+const btn = document.getElementById(`btnHospitalRegion${t}`);
+if (btn) btn.className = (t === team) ? 'region-btn active' : 'region-btn';
 });
 analyzeHospitalsCoverage();
 }
@@ -720,20 +635,14 @@ combinedSurveyArea = turf.union(combinedSurveyArea, casePolygons[i]);
 let displayedCount = 0;
 
 hospitalsData.forEach(hosp => {
-const hRegion = getHospitalRegion(hosp).toUpperCase();
-
-const isMatch = (selectedHospitalViewRegion === 'ALL') ||
-(hRegion === selectedHospitalViewRegion) ||
-(hRegion.includes(selectedHospitalViewRegion)) ||
-(selectedHospitalViewRegion === 'KLN' && (hRegion.includes('KLN') || hRegion.includes('KOWLOON')));
+const hTeam = (hosp.team || "").toUpperCase();
+const isMatch = (selectedHospitalViewRegion === 'ALL') || (hTeam === selectedHospitalViewRegion);
 
 if (!isMatch) return;
 
-const hLat = getHospitalLat(hosp);
-const hLng = getHospitalLng(hosp);
-const hospName = getHospitalName(hosp);
-const addressZh = getHospitalAddressZh(hosp);
-const district = getHospitalDistrict(hosp);
+const hLat = hosp.lat;
+const hLng = hosp.lng;
+const hospName = hosp.name_zh || hosp.name_en;
 
 if (isNaN(hLat) || isNaN(hLng)) return;
 
@@ -747,7 +656,7 @@ let overlapRatio = 0;
 let lastSurveyDates = [];
 
 const hCircle = L.circle([hLat, hLng], { color: '#e83e8c', fillColor: '#e83e8c', fillOpacity: 0.15, radius: 250, weight: 2, dashArray: '4,4' }).addTo(map);
-const hMarker = L.marker([hLat, hLng]).addTo(map).bindPopup(`<b>🏥 ${hospName}</b> ${hRegion ? `[${hRegion}]` : ''}<br>${district ? `分區: ${district}<br>` : ''}${addressZh || ''}`);
+const hMarker = L.marker([hLat, hLng]).addTo(map).bindPopup(`<b>🏥 ${hospName} (${hosp.code || ''})</b> ${hTeam ? `[${hTeam}]` : ''}<br>${hosp.district ? `District: ${hosp.district}<br>` : ''}${hosp.address_zh || hosp.address_en || ''}`);
 currentLayers.push(hCircle, hMarker);
 
 if (combinedSurveyArea) {
@@ -780,13 +689,13 @@ const card = document.createElement('div');
 card.className = 'hospital-card';
 card.innerHTML = `
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
-<strong>🏥 ${hospName}</strong>
+<strong>🏥 ${hospName} <small style="color:#666;">(${hosp.code || ''})</small></strong>
 ${statusBadge}
 </div>
 <div style="color:#555; font-size:11px; margin-bottom: 4px;">
-${hRegion ? `<span style="background:#e9ecef; padding:1px 4px; border-radius:3px; margin-right:4px;">${hRegion}</span>` : ''}
-${district ? `<span style="background:#e9ecef; padding:1px 4px; border-radius:3px;">${district}</span>` : ''}
-${addressZh ? `<div style="color:#666; margin-top:2px;">📍 ${addressZh}</div>` : ''}
+${hTeam ? `<span style="background:#e9ecef; padding:1px 4px; border-radius:3px; margin-right:4px;">Team: ${hTeam}</span>` : ''}
+${hosp.district ? `<span style="background:#e9ecef; padding:1px 4px; border-radius:3px;">${hosp.district}</span>` : ''}
+${hosp.address_zh ? `<div style="color:#666; margin-top:2px;">📍 ${hosp.address_zh}</div>` : ''}
 </div>
 <div style="color:#555; font-size:11px; border-top:1px dashed #eee; padding-top:4px;">
 <b>Surveys (22 days):</b> ${lastSurveyDates.length > 0 ? lastSurveyDates.join(', ') : 'None'}<br>
@@ -803,7 +712,7 @@ container.appendChild(card);
 });
 
 if (displayedCount === 0) {
-container.innerHTML = `<small style="color:#777;">No hospitals found for region "${selectedHospitalViewRegion}".</small>`;
+container.innerHTML = `<small style="color:#777;">No hospitals found for Team "${selectedHospitalViewRegion}".</small>`;
 }
 }
 
@@ -821,6 +730,10 @@ lat: parseFloat(item.lat),
 lng: parseFloat(item.lng),
 isCompleted: item.is_completed === true || item.is_completed === 'true'
 }));
+
+// 讀取後預設先按 Survey Date 從最新到最舊排序
+sortCasesData('surveyDate', false);
+
 renderMapAndList();
 if (currentMode === 'hospital') analyzeHospitalsCoverage();
 if (currentMode === 'table') renderExcelTable();
@@ -830,7 +743,7 @@ fetch(`${GOOGLE_SCRIPT_URL}?action=getHospitals`)
 .then(res => res.json())
 .then(data => {
 hospitalsData = data;
-populateHospitalDropdown();
+filterHospitalsByRegion();
 if (currentMode === 'hospital') analyzeHospitalsCoverage();
 });
 }
@@ -844,11 +757,15 @@ currentLayers = [];
 const recordsContainer = document.getElementById('recordsContainer');
 recordsContainer.innerHTML = '';
 
+// 篩選出未過期（<= 22 天）的有效個案
 const validCases = casesData
 .filter(item => getDaysDiff(item.surveyDate) <= 22)
 .sort((a, b) => new Date(b.surveyDate) - new Date(a.surveyDate));
 
 validCases.forEach((item) => {
+const remainingDays = getDaysRemaining(item.surveyDate);
+const daysText = remainingDays === 22 ? 'Today (22 days left)' : `${remainingDays} day(s) left`;
+
 const circle100 = L.circle([item.lat, item.lng], { color: 'red', fillColor: '#f03', fillOpacity: 0.3, radius: 100 }).addTo(map);
 currentLayers.push(circle100);
 
@@ -857,17 +774,28 @@ const circle250 = L.circle([item.lat, item.lng], { color: 'orange', fillColor: '
 currentLayers.push(circle250);
 }
 
+// 地圖 Popup 加上 Remaining Days 倒數提示
+const popupContent = `
+<b>Case No: ${item.caseNo}</b><br>
+<b>Address:</b> ${item.fullAddress}<br>
+<b>Date:</b> ${item.surveyDate}<br>
+<b>Scope:</b> ${item.isCompleted ? 'Full (100m + 250m)' : 'Partial (100m)'}<br>
+<b style="color: #007bff;">⏳ Days Remaining: ${daysText}</b>
+`;
+
 const marker = L.marker([item.lat, item.lng]).addTo(map);
-marker.bindPopup(`<b>Case No: ${item.caseNo}</b><br><b>Address:</b> ${item.fullAddress}<br><b>Date:</b> ${item.surveyDate}`);
+marker.bindPopup(popupContent);
+circle100.bindPopup(popupContent);
 currentLayers.push(marker);
 });
 
 validCases.slice(0, 5).forEach((item) => {
+const remainingDays = getDaysRemaining(item.surveyDate);
 const div = document.createElement('div');
 div.className = 'case-item';
 div.innerHTML = `
 <div>
-<strong>${item.caseNo}</strong><br>
+<strong>${item.caseNo}</strong> <small style="color:#007bff; font-weight:bold;">(${remainingDays}d left)</small><br>
 <small style="color:#555;">${item.fullAddress}</small><br>
 Date: ${item.surveyDate}
 </div>
@@ -884,10 +812,16 @@ currentSortColumn = column;
 isSortAsc = true;
 }
 
+sortCasesData(column, isSortAsc);
+renderExcelTable();
+}
+
+// 獨立排序邏輯
+function sortCasesData(column, isAsc) {
 document.querySelectorAll('[id^="sort-"]').forEach(span => span.innerText = '⇅');
 const sortSpan = document.getElementById(`sort-${column}`);
 if (sortSpan) {
-sortSpan.innerText = isSortAsc ? '▲' : '▼';
+sortSpan.innerText = isAsc ? '▲' : '▼';
 }
 
 casesData.sort((a, b) => {
@@ -902,25 +836,38 @@ valA = valA.toLowerCase();
 valB = valB.toLowerCase();
 }
 
-if (valA < valB) return isSortAsc ? -1 : 1;
-if (valA > valB) return isSortAsc ? 1 : -1;
+if (valA < valB) return isAsc ? -1 : 1;
+if (valA > valB) return isAsc ? 1 : -1;
 return 0;
 });
-
-renderExcelTable();
 }
 
+// 渲染升級版的表格 View (自動隱藏過期 Case 並顯示 Days Remaining)
 function renderExcelTable() {
 const tbody = document.getElementById('tableBody');
 tbody.innerHTML = '';
 
-if (casesData.length === 0) {
-tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">No survey records found.</td></tr>';
+// 自動過濾出未過期的 Case（剩餘天數 >= 0）
+const activeCases = casesData.filter(item => getDaysRemaining(item.surveyDate) >= 0);
+
+if (activeCases.length === 0) {
+tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">No active survey records found.</td></tr>';
 return;
 }
 
-casesData.forEach(item => {
-const daysDiff = getDaysDiff(item.surveyDate);
+activeCases.forEach(item => {
+const daysLeft = getDaysRemaining(item.surveyDate);
+
+// 剩餘天數樣式（3天內顯示紅色警示，7天內黃色，其餘綠色）
+let daysBadge = '';
+if (daysLeft <= 3) {
+daysBadge = `<span style="background:#dc3545; color:white; padding:3px 8px; border-radius:12px; font-weight:bold; font-size:11px;">⚠️ ${daysLeft} day(s) left</span>`;
+} else if (daysLeft <= 7) {
+daysBadge = `<span style="background:#ffc107; color:black; padding:3px 8px; border-radius:12px; font-weight:bold; font-size:11px;">⏳ ${daysLeft} day(s) left</span>`;
+} else {
+daysBadge = `<span style="background:#28a745; color:white; padding:3px 8px; border-radius:12px; font-weight:bold; font-size:11px;">✅ ${daysLeft} day(s) left</span>`;
+}
+
 const tr = document.createElement('tr');
 tr.innerHTML = `
 <td><b>${item.caseNo}</b></td>
@@ -928,7 +875,7 @@ tr.innerHTML = `
 <td>${item.district}</td>
 <td>${item.isCompleted ? 'Full (250m)' : 'Partial (100m)'}</td>
 <td>${item.fullAddress}</td>
-<td>${daysDiff <= 22 ? '<span style="color:green; font-weight:bold;">Active</span>' : '<span style="color:gray;">Expired</span>'}</td>
+<td>${daysBadge}</td>
 <td><button onclick="deleteCase(${item.rowIndex}, '${item.caseNo}')" style="background:#dc3545; color:white; border:none; padding:3px 8px; border-radius:3px; cursor:pointer;">Delete</button></td>
 `;
 tbody.appendChild(tr);
@@ -945,6 +892,7 @@ loadCasesFromCloud();
 });
 }
 
+// 初始化載入資料
 loadCasesFromCloud();
 </script>
 </body>
