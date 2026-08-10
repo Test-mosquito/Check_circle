@@ -242,7 +242,7 @@ Filter hospitals by Responsible Team:
 <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
 
 <script>
-// ⚠️ 請替換為您測試成功的 Google Apps Script Web App URL
+// ⚠️ 請替換為您的 Google Apps Script Web App URL
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwJiwU-HxwGCYMketyZS4D4YQcpW2enbaIJY7SBvnRRaGr7hvrpXAWHgW2YejQQT7-O8g/exec';
 
 const map = L.map('map').setView([22.3193, 114.1694], 13);
@@ -270,7 +270,6 @@ let tempMarker = null;
 let isAddressUnlocked = false;
 let selectedHospitalViewRegion = 'ALL';
 
-// 預設排序策略：按 Survey Date 降序（最新日期在前）
 let currentSortColumn = 'surveyDate';
 let isSortAsc = false;
 
@@ -515,7 +514,6 @@ if (currentMode === 'check') performTemporaryCheck(lat, lng);
 }
 }
 
-// 計算已過去的天數
 function getDaysDiff(fromDateStr) {
 const surveyDate = new Date(fromDateStr);
 const today = new Date();
@@ -524,7 +522,6 @@ today.setHours(0,0,0,0);
 return Math.floor((today - surveyDate) / (1000 * 60 * 60 * 24));
 }
 
-// 計算剩餘有效天數 (22 - 已過天數)
 function getDaysRemaining(fromDateStr) {
 return 22 - getDaysDiff(fromDateStr);
 }
@@ -602,6 +599,7 @@ if (btn) btn.className = (t === team) ? 'region-btn active' : 'region-btn';
 analyzeHospitalsCoverage();
 }
 
+// 🏥 升級版：顯示 Case No. 並在地圖繪製重疊調查圈
 function analyzeHospitalsCoverage() {
 currentLayers.forEach(layer => map.removeLayer(layer));
 currentLayers = [];
@@ -614,11 +612,13 @@ container.innerHTML = '<small style="color:#777;">No hospital data found in Goog
 return;
 }
 
+// 1. 篩選出 22 天內的有效 Case（剩餘天數 >= 0）
 const activeCases = casesData.filter(item => {
-const days = getDaysDiff(item.surveyDate);
-return days >= 0 && days <= 22;
+const daysLeft = getDaysRemaining(item.surveyDate);
+return daysLeft >= 0 && daysLeft <= 22;
 });
 
+// 建立所有有效 Case 的地理多邊形（Buffer）用於計算整體覆蓋率
 let casePolygons = activeCases.map(c => {
 const radius = c.isCompleted ? 0.25 : 0.1;
 return turf.buffer(turf.point([c.lng, c.lat]), radius, { units: 'kilometers' });
@@ -633,6 +633,7 @@ combinedSurveyArea = turf.union(combinedSurveyArea, casePolygons[i]);
 }
 
 let displayedCount = 0;
+let drawnCaseIds = new Set(); // 用於記錄已繪製在地圖上的 Case，避免重複畫圈
 
 hospitalsData.forEach(hosp => {
 const hTeam = (hosp.team || "").toUpperCase();
@@ -653,12 +654,14 @@ const hosp250Circle = turf.buffer(hospPt, 0.25, { units: 'kilometers' });
 const hospAreaSize = turf.area(hosp250Circle);
 
 let overlapRatio = 0;
-let lastSurveyDates = [];
+let matchedCases = [];
 
-const hCircle = L.circle([hLat, hLng], { color: '#e83e8c', fillColor: '#e83e8c', fillOpacity: 0.15, radius: 250, weight: 2, dashArray: '4,4' }).addTo(map);
+// 畫出醫院的 250m 範圍圈與 Hospital Marker
+const hCircle = L.circle([hLat, hLng], { color: '#e83e8c', fillColor: '#e83e8c', fillOpacity: 0.12, radius: 250, weight: 2, dashArray: '4,4' }).addTo(map);
 const hMarker = L.marker([hLat, hLng]).addTo(map).bindPopup(`<b>🏥 ${hospName} (${hosp.code || ''})</b> ${hTeam ? `[${hTeam}]` : ''}<br>${hosp.district ? `District: ${hosp.district}<br>` : ''}${hosp.address_zh || hosp.address_en || ''}`);
 currentLayers.push(hCircle, hMarker);
 
+// 計算覆蓋重疊率
 if (combinedSurveyArea) {
 const intersection = turf.intersect(hosp250Circle, combinedSurveyArea);
 if (intersection) {
@@ -667,14 +670,67 @@ overlapRatio = (intersectArea / hospAreaSize) * 100;
 }
 }
 
+// 2. 比對 500m 範圍內的調查個案，記錄 Case No 並在地圖上記錄繪製
 activeCases.forEach(c => {
 const dist = turf.distance(hospPt, turf.point([c.lng, c.lat]), { units: 'meters' });
 if (dist <= 500) {
-lastSurveyDates.push(c.surveyDate);
+const daysLeft = getDaysRemaining(c.surveyDate);
+const formattedDate = new Date(c.surveyDate).toISOString().split('T')[0];
+
+matchedCases.push({
+caseNo: c.caseNo || 'N/A',
+dateStr: formattedDate,
+rawDate: new Date(c.surveyDate),
+daysLeft: daysLeft,
+lat: c.lat,
+lng: c.lng,
+isCompleted: c.isCompleted,
+fullAddress: c.fullAddress
+});
+
+// 繪製該調查個案的範圍圈與 Marker 到右邊地圖上
+const caseKey = `${c.caseNo}_${c.lat}_${c.lng}`;
+if (!drawnCaseIds.has(caseKey)) {
+drawnCaseIds.add(caseKey);
+
+// 畫 100m 核心圈
+const c100 = L.circle([c.lat, c.lng], { color: '#007bff', fillColor: '#007bff', fillOpacity: 0.25, radius: 100, weight: 1 }).addTo(map);
+currentLayers.push(c100);
+
+// 若 Completed 則加畫 250m 圈
+if (c.isCompleted) {
+const c250 = L.circle([c.lat, c.lng], { color: '#ffc107', fillColor: '#ffc107', fillOpacity: 0.15, radius: 250, weight: 1, dashArray: '3,3' }).addTo(map);
+currentLayers.push(c250);
+}
+
+// 地圖上的 Case Marker
+const daysText = daysLeft === 22 ? 'Today (22 days left)' : `${daysLeft} day(s) left`;
+const casePopup = `
+<b>Case No: ${c.caseNo}</b><br>
+<b>Address:</b> ${c.fullAddress}<br>
+<b>Date:</b> ${formattedDate}<br>
+<b>Scope:</b> ${c.isCompleted ? 'Full (100m + 250m)' : 'Partial (100m)'}<br>
+<b style="color: #007bff;">⏳ Days Remaining: ${daysText}</b>
+`;
+const cMarker = L.marker([c.lat, c.lng]).addTo(map).bindPopup(casePopup);
+currentLayers.push(cMarker);
+}
 }
 });
 
-lastSurveyDates = [...new Set(lastSurveyDates)].sort().reverse();
+// 依日期從最新到最舊排序
+matchedCases.sort((a, b) => b.rawDate - a.rawDate);
+
+// 格式化顯示文字：包含 Case No + 調查日期 + 剩餘天數 (例如: DENGUE-001 | 2026-08-05 (17d left))
+let uniqueSurveyInfo = [];
+let seenKeys = new Set();
+matchedCases.forEach(item => {
+const uniqueKey = `${item.caseNo}_${item.dateStr}`;
+if (!seenKeys.has(uniqueKey)) {
+seenKeys.add(uniqueKey);
+uniqueSurveyInfo.push(`<b>${item.caseNo}</b> | ${item.dateStr} <span style="color:#007bff; font-weight:bold;">(${item.daysLeft}d left)</span>`);
+}
+});
 
 let statusBadge = '';
 if (overlapRatio > 90) {
@@ -698,8 +754,9 @@ ${hosp.district ? `<span style="background:#e9ecef; padding:1px 4px; border-radi
 ${hosp.address_zh ? `<div style="color:#666; margin-top:2px;">📍 ${hosp.address_zh}</div>` : ''}
 </div>
 <div style="color:#555; font-size:11px; border-top:1px dashed #eee; padding-top:4px;">
-<b>Surveys (22 days):</b> ${lastSurveyDates.length > 0 ? lastSurveyDates.join(', ') : 'None'}<br>
-<b>250m Coverage:</b> ${overlapRatio.toFixed(1)}%
+<b>Overlapped Surveys (within 22 days):</b><br>
+${uniqueSurveyInfo.length > 0 ? uniqueSurveyInfo.join('<br>') : '<span style="color:#999;">No surveys in 22 days</span>'}<br>
+<b style="margin-top:3px; display:inline-block;">250m Coverage:</b> ${overlapRatio.toFixed(1)}%
 </div>
 `;
 
@@ -731,7 +788,6 @@ lng: parseFloat(item.lng),
 isCompleted: item.is_completed === true || item.is_completed === 'true'
 }));
 
-// 讀取後預設先按 Survey Date 從最新到最舊排序
 sortCasesData('surveyDate', false);
 
 renderMapAndList();
@@ -757,7 +813,6 @@ currentLayers = [];
 const recordsContainer = document.getElementById('recordsContainer');
 recordsContainer.innerHTML = '';
 
-// 篩選出未過期（<= 22 天）的有效個案
 const validCases = casesData
 .filter(item => getDaysDiff(item.surveyDate) <= 22)
 .sort((a, b) => new Date(b.surveyDate) - new Date(a.surveyDate));
@@ -774,7 +829,6 @@ const circle250 = L.circle([item.lat, item.lng], { color: 'orange', fillColor: '
 currentLayers.push(circle250);
 }
 
-// 地圖 Popup 加上 Remaining Days 倒數提示
 const popupContent = `
 <b>Case No: ${item.caseNo}</b><br>
 <b>Address:</b> ${item.fullAddress}<br>
@@ -816,7 +870,6 @@ sortCasesData(column, isSortAsc);
 renderExcelTable();
 }
 
-// 獨立排序邏輯
 function sortCasesData(column, isAsc) {
 document.querySelectorAll('[id^="sort-"]').forEach(span => span.innerText = '⇅');
 const sortSpan = document.getElementById(`sort-${column}`);
@@ -842,12 +895,10 @@ return 0;
 });
 }
 
-// 渲染升級版的表格 View (自動隱藏過期 Case 並顯示 Days Remaining)
 function renderExcelTable() {
 const tbody = document.getElementById('tableBody');
 tbody.innerHTML = '';
 
-// 自動過濾出未過期的 Case（剩餘天數 >= 0）
 const activeCases = casesData.filter(item => getDaysRemaining(item.surveyDate) >= 0);
 
 if (activeCases.length === 0) {
@@ -858,7 +909,6 @@ return;
 activeCases.forEach(item => {
 const daysLeft = getDaysRemaining(item.surveyDate);
 
-// 剩餘天數樣式（3天內顯示紅色警示，7天內黃色，其餘綠色）
 let daysBadge = '';
 if (daysLeft <= 3) {
 daysBadge = `<span style="background:#dc3545; color:white; padding:3px 8px; border-radius:12px; font-weight:bold; font-size:11px;">⚠️ ${daysLeft} day(s) left</span>`;
@@ -892,7 +942,6 @@ loadCasesFromCloud();
 });
 }
 
-// 初始化載入資料
 loadCasesFromCloud();
 </script>
 </body>
