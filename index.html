@@ -243,7 +243,7 @@ Filter hospitals by Responsible Team:
 
 <script>
 // ⚠️ 請替換為您的 Google Apps Script Web App URL
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwJiwU-HxwGCYMketyZS4D4YQcpW2enbaIJY7SBvnRRaGr7hvrpXAWHgW2YejQQT7-O8g/exec';
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzkBwqadcQ9ffph-wG9Y8zlJ28n5BYuhQ7yUVtTt8XJhOVsmDlg-ZnDm2JxwGJNZaYqYw/exec';
 
 const map = L.map('map').setView([22.3193, 114.1694], 13);
 
@@ -280,6 +280,50 @@ const hkDistricts = [
 "中西區", "灣仔區", "東區", "南區", "油尖旺區", "深水埗區", "九龍城區", "黃大仙區",
 "觀塘區", "葵青區", "荃灣區", "屯門區", "元朗區", "北區", "大埔區", "沙田區", "西貢區", "離島區"
 ];
+
+// 🛠️ 防時區偏移行數：強制將任何日期格式解析為純 YYYY-MM-DD 字串
+function parsePureDate(dateStr) {
+if (!dateStr) return '';
+// 如果是 ISO 字串如 2026-08-07T16:00:00.000Z，直接擷取前半段
+if (typeof dateStr === 'string' && dateStr.includes('T')) {
+const d = new Date(dateStr);
+const year = d.getFullYear();
+const month = String(d.getMonth() + 1).padStart(2, '0');
+const day = String(d.getDate()).padStart(2, '0');
+return `${year}-${month}-${day}`;
+}
+// 如果原本就是 YYYY-MM-DD
+const match = String(dateStr).match(/\d{4}-\d{2}-\d{2}/);
+if (match) return match[0];
+
+// 備用安全處理
+const d = new Date(dateStr);
+if (!isNaN(d.getTime())) {
+const year = d.getFullYear();
+const month = String(d.getMonth() + 1).padStart(2, '0');
+const day = String(d.getDate()).padStart(2, '0');
+return `${year}-${month}-${day}`;
+}
+return String(dateStr);
+}
+
+// 🛠️ 安全的天數差計算 (使用 UTC 日期避免時區跳日)
+function getDaysDiff(fromDateStr) {
+const pureStr = parsePureDate(fromDateStr);
+if (!pureStr) return 999;
+
+const parts = pureStr.split('-');
+const surveyDateUTC = Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+
+const now = new Date();
+const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+
+return Math.floor((todayUTC - surveyDateUTC) / (1000 * 60 * 60 * 24));
+}
+
+function getDaysRemaining(fromDateStr) {
+return 22 - getDaysDiff(fromDateStr);
+}
 
 function detectDistrict(address) {
 if (!address) return "Unspecified";
@@ -514,18 +558,6 @@ if (currentMode === 'check') performTemporaryCheck(lat, lng);
 }
 }
 
-function getDaysDiff(fromDateStr) {
-const surveyDate = new Date(fromDateStr);
-const today = new Date();
-surveyDate.setHours(0,0,0,0);
-today.setHours(0,0,0,0);
-return Math.floor((today - surveyDate) / (1000 * 60 * 60 * 24));
-}
-
-function getDaysRemaining(fromDateStr) {
-return 22 - getDaysDiff(fromDateStr);
-}
-
 function getTargetCoordinates() {
 if (activeTab === 'address' || activeTab === 'mapClick' || activeTab === 'hospital') {
 if (!clickedPoint) { alert("Please select a location/hospital or click on map!"); return null; }
@@ -599,7 +631,6 @@ if (btn) btn.className = (t === team) ? 'region-btn active' : 'region-btn';
 analyzeHospitalsCoverage();
 }
 
-// 🏥 升級版：顯示 Case No. 並在地圖繪製重疊調查圈
 function analyzeHospitalsCoverage() {
 currentLayers.forEach(layer => map.removeLayer(layer));
 currentLayers = [];
@@ -612,13 +643,11 @@ container.innerHTML = '<small style="color:#777;">No hospital data found in Goog
 return;
 }
 
-// 1. 篩選出 22 天內的有效 Case（剩餘天數 >= 0）
 const activeCases = casesData.filter(item => {
 const daysLeft = getDaysRemaining(item.surveyDate);
 return daysLeft >= 0 && daysLeft <= 22;
 });
 
-// 建立所有有效 Case 的地理多邊形（Buffer）用於計算整體覆蓋率
 let casePolygons = activeCases.map(c => {
 const radius = c.isCompleted ? 0.25 : 0.1;
 return turf.buffer(turf.point([c.lng, c.lat]), radius, { units: 'kilometers' });
@@ -633,7 +662,7 @@ combinedSurveyArea = turf.union(combinedSurveyArea, casePolygons[i]);
 }
 
 let displayedCount = 0;
-let drawnCaseIds = new Set(); // 用於記錄已繪製在地圖上的 Case，避免重複畫圈
+let drawnCaseIds = new Set();
 
 hospitalsData.forEach(hosp => {
 const hTeam = (hosp.team || "").toUpperCase();
@@ -656,12 +685,10 @@ const hospAreaSize = turf.area(hosp250Circle);
 let overlapRatio = 0;
 let matchedCases = [];
 
-// 畫出醫院的 250m 範圍圈與 Hospital Marker
 const hCircle = L.circle([hLat, hLng], { color: '#e83e8c', fillColor: '#e83e8c', fillOpacity: 0.12, radius: 250, weight: 2, dashArray: '4,4' }).addTo(map);
 const hMarker = L.marker([hLat, hLng]).addTo(map).bindPopup(`<b>🏥 ${hospName} (${hosp.code || ''})</b> ${hTeam ? `[${hTeam}]` : ''}<br>${hosp.district ? `District: ${hosp.district}<br>` : ''}${hosp.address_zh || hosp.address_en || ''}`);
 currentLayers.push(hCircle, hMarker);
 
-// 計算覆蓋重疊率
 if (combinedSurveyArea) {
 const intersection = turf.intersect(hosp250Circle, combinedSurveyArea);
 if (intersection) {
@@ -670,17 +697,15 @@ overlapRatio = (intersectArea / hospAreaSize) * 100;
 }
 }
 
-// 2. 比對 500m 範圍內的調查個案，記錄 Case No 並在地圖上記錄繪製
 activeCases.forEach(c => {
 const dist = turf.distance(hospPt, turf.point([c.lng, c.lat]), { units: 'meters' });
 if (dist <= 500) {
 const daysLeft = getDaysRemaining(c.surveyDate);
-const formattedDate = new Date(c.surveyDate).toISOString().split('T')[0];
+const formattedDate = parsePureDate(c.surveyDate);
 
 matchedCases.push({
 caseNo: c.caseNo || 'N/A',
 dateStr: formattedDate,
-rawDate: new Date(c.surveyDate),
 daysLeft: daysLeft,
 lat: c.lat,
 lng: c.lng,
@@ -688,22 +713,18 @@ isCompleted: c.isCompleted,
 fullAddress: c.fullAddress
 });
 
-// 繪製該調查個案的範圍圈與 Marker 到右邊地圖上
 const caseKey = `${c.caseNo}_${c.lat}_${c.lng}`;
 if (!drawnCaseIds.has(caseKey)) {
 drawnCaseIds.add(caseKey);
 
-// 畫 100m 核心圈
 const c100 = L.circle([c.lat, c.lng], { color: '#007bff', fillColor: '#007bff', fillOpacity: 0.25, radius: 100, weight: 1 }).addTo(map);
 currentLayers.push(c100);
 
-// 若 Completed 則加畫 250m 圈
 if (c.isCompleted) {
 const c250 = L.circle([c.lat, c.lng], { color: '#ffc107', fillColor: '#ffc107', fillOpacity: 0.15, radius: 250, weight: 1, dashArray: '3,3' }).addTo(map);
 currentLayers.push(c250);
 }
 
-// 地圖上的 Case Marker
 const daysText = daysLeft === 22 ? 'Today (22 days left)' : `${daysLeft} day(s) left`;
 const casePopup = `
 <b>Case No: ${c.caseNo}</b><br>
@@ -718,10 +739,9 @@ currentLayers.push(cMarker);
 }
 });
 
-// 依日期從最新到最舊排序
-matchedCases.sort((a, b) => b.rawDate - a.rawDate);
+// 依純日期文字降冪排序
+matchedCases.sort((a, b) => b.dateStr.localeCompare(a.dateStr));
 
-// 格式化顯示文字：包含 Case No + 調查日期 + 剩餘天數 (例如: DENGUE-001 | 2026-08-05 (17d left))
 let uniqueSurveyInfo = [];
 let seenKeys = new Set();
 matchedCases.forEach(item => {
@@ -780,7 +800,7 @@ fetch(GOOGLE_SCRIPT_URL)
 casesData = data.map(item => ({
 rowIndex: item.row_id,
 caseNo: item.case_no,
-surveyDate: item.survey_date,
+surveyDate: parsePureDate(item.survey_date), // 使用強健解析修復時區偏差
 fullAddress: item.full_address,
 district: detectDistrict(item.full_address),
 lat: parseFloat(item.lat),
@@ -815,7 +835,7 @@ recordsContainer.innerHTML = '';
 
 const validCases = casesData
 .filter(item => getDaysDiff(item.surveyDate) <= 22)
-.sort((a, b) => new Date(b.surveyDate) - new Date(a.surveyDate));
+.sort((a, b) => b.surveyDate.localeCompare(a.surveyDate));
 
 validCases.forEach((item) => {
 const remainingDays = getDaysRemaining(item.surveyDate);
@@ -881,10 +901,7 @@ casesData.sort((a, b) => {
 let valA = a[column];
 let valB = b[column];
 
-if (column === 'surveyDate') {
-valA = new Date(valA);
-valB = new Date(valB);
-} else if (typeof valA === 'string') {
+if (typeof valA === 'string') {
 valA = valA.toLowerCase();
 valB = valB.toLowerCase();
 }
@@ -946,3 +963,4 @@ loadCasesFromCloud();
 </script>
 </body>
 </html>
+
