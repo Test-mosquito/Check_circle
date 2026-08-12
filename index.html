@@ -281,10 +281,8 @@ const hkDistricts = [
 "觀塘區", "葵青區", "荃灣區", "屯門區", "元朗區", "北區", "大埔區", "沙田區", "西貢區", "離島區"
 ];
 
-// 🛠️ 防時區偏移行數：強制將任何日期格式解析為純 YYYY-MM-DD 字串
 function parsePureDate(dateStr) {
 if (!dateStr) return '';
-// 如果是 ISO 字串如 2026-08-07T16:00:00.000Z，直接擷取前半段
 if (typeof dateStr === 'string' && dateStr.includes('T')) {
 const d = new Date(dateStr);
 const year = d.getFullYear();
@@ -292,11 +290,9 @@ const month = String(d.getMonth() + 1).padStart(2, '0');
 const day = String(d.getDate()).padStart(2, '0');
 return `${year}-${month}-${day}`;
 }
-// 如果原本就是 YYYY-MM-DD
 const match = String(dateStr).match(/\d{4}-\d{2}-\d{2}/);
 if (match) return match[0];
 
-// 備用安全處理
 const d = new Date(dateStr);
 if (!isNaN(d.getTime())) {
 const year = d.getFullYear();
@@ -307,7 +303,6 @@ return `${year}-${month}-${day}`;
 return String(dateStr);
 }
 
-// 🛠️ 安全的天數差計算 (使用 UTC 日期避免時區跳日)
 function getDaysDiff(fromDateStr) {
 const pureStr = parsePureDate(fromDateStr);
 if (!pureStr) return 999;
@@ -435,10 +430,10 @@ count++;
 const opt = document.createElement('option');
 opt.value = index;
 
-const displayName = h.name_zh || h.name_en;
+const displayName = h.name_en || h.name_zh;
 const teamTag = h.team ? `[${h.team}]` : '';
 const districtTag = h.district ? `[${h.district}]` : '';
-const addrDisplay = h.address_zh ? ` - ${h.address_zh}` : '';
+const addrDisplay = h.address_en ? ` - ${h.address_en}` : (h.address_zh ? ` - ${h.address_zh}` : '');
 
 opt.innerText = `${teamTag}${districtTag} ${displayName}${addrDisplay}`;
 select.appendChild(opt);
@@ -452,6 +447,7 @@ lbl.innerText = selectedTeam === 'ALL'
 }
 }
 
+// 🏥 選擇醫院：改為優先以英文組合 Full Address
 function handleHospitalSelect() {
 const index = document.getElementById('selectHospital').value;
 if (index === "") return;
@@ -459,7 +455,9 @@ if (index === "") return;
 const hosp = hospitalsData[index];
 const lat = hosp.lat;
 const lng = hosp.lng;
-const hospName = hosp.name_zh || hosp.name_en;
+
+// 優先使用英文名稱與中文名稱備用
+const hospName = hosp.name_en || hosp.name_zh;
 
 if (isNaN(lat) || isNaN(lng)) {
 alert("Hospital Latitude/Longitude coordinates error in Google Sheet!");
@@ -471,16 +469,19 @@ map.setView([lat, lng], 16);
 
 if (tempMarker) map.removeLayer(tempMarker);
 
-const popupMsg = `<b>🏥 ${hospName} (${hosp.code || ''})</b><br>${hosp.district ? `District: ${hosp.district}<br>` : ''}${hosp.address_zh || hosp.address_en || ''}`;
+const popupMsg = `<b>🏥 ${hospName} (${hosp.code || ''})</b><br>${hosp.district ? `District: ${hosp.district}<br>` : ''}${hosp.address_en || hosp.address_zh || ''}`;
 tempMarker = L.marker(clickedPoint).addTo(map).bindPopup(popupMsg).openPopup();
 
 if (!isAddressUnlocked) {
 let fullAddr = hospName;
-if (hosp.address_zh) {
-fullAddr += `, ${hosp.address_zh}`;
-} else if (hosp.address_en) {
+
+// 優先抓取英文地址，若無則抓中文地址
+if (hosp.address_en) {
 fullAddr += `, ${hosp.address_en}`;
+} else if (hosp.address_zh) {
+fullAddr += `, ${hosp.address_zh}`;
 }
+
 if (hosp.district) {
 fullAddr += ` (${hosp.district})`;
 }
@@ -501,7 +502,7 @@ const resultsContainer = document.getElementById('searchResults');
 resultsContainer.style.display = 'block';
 resultsContainer.innerHTML = 'Searching...';
 
-fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ', Hong Kong')}`)
+fetch(`https://nominatim.openstreetmap.org/search?format=json&accept-language=en&q=${encodeURIComponent(query + ', Hong Kong')}`)
 .then(res => res.json())
 .then(data => {
 resultsContainer.innerHTML = '';
@@ -672,7 +673,7 @@ if (!isMatch) return;
 
 const hLat = hosp.lat;
 const hLng = hosp.lng;
-const hospName = hosp.name_zh || hosp.name_en;
+const hospName = hosp.name_en || hosp.name_zh;
 
 if (isNaN(hLat) || isNaN(hLng)) return;
 
@@ -686,7 +687,7 @@ let overlapRatio = 0;
 let matchedCases = [];
 
 const hCircle = L.circle([hLat, hLng], { color: '#e83e8c', fillColor: '#e83e8c', fillOpacity: 0.12, radius: 250, weight: 2, dashArray: '4,4' }).addTo(map);
-const hMarker = L.marker([hLat, hLng]).addTo(map).bindPopup(`<b>🏥 ${hospName} (${hosp.code || ''})</b> ${hTeam ? `[${hTeam}]` : ''}<br>${hosp.district ? `District: ${hosp.district}<br>` : ''}${hosp.address_zh || hosp.address_en || ''}`);
+const hMarker = L.marker([hLat, hLng]).addTo(map).bindPopup(`<b>🏥 ${hospName} (${hosp.code || ''})</b> ${hTeam ? `[${hTeam}]` : ''}<br>${hosp.district ? `District: ${hosp.district}<br>` : ''}${hosp.address_en || hosp.address_zh || ''}`);
 currentLayers.push(hCircle, hMarker);
 
 if (combinedSurveyArea) {
@@ -739,7 +740,6 @@ currentLayers.push(cMarker);
 }
 });
 
-// 依純日期文字降冪排序
 matchedCases.sort((a, b) => b.dateStr.localeCompare(a.dateStr));
 
 let uniqueSurveyInfo = [];
@@ -771,7 +771,7 @@ ${statusBadge}
 <div style="color:#555; font-size:11px; margin-bottom: 4px;">
 ${hTeam ? `<span style="background:#e9ecef; padding:1px 4px; border-radius:3px; margin-right:4px;">Team: ${hTeam}</span>` : ''}
 ${hosp.district ? `<span style="background:#e9ecef; padding:1px 4px; border-radius:3px;">${hosp.district}</span>` : ''}
-${hosp.address_zh ? `<div style="color:#666; margin-top:2px;">📍 ${hosp.address_zh}</div>` : ''}
+${(hosp.address_en || hosp.address_zh) ? `<div style="color:#666; margin-top:2px;">📍 ${hosp.address_en || hosp.address_zh}</div>` : ''}
 </div>
 <div style="color:#555; font-size:11px; border-top:1px dashed #eee; padding-top:4px;">
 <b>Overlapped Surveys (within 22 days):</b><br>
@@ -800,7 +800,7 @@ fetch(GOOGLE_SCRIPT_URL)
 casesData = data.map(item => ({
 rowIndex: item.row_id,
 caseNo: item.case_no,
-surveyDate: parsePureDate(item.survey_date), // 使用強健解析修復時區偏差
+surveyDate: parsePureDate(item.survey_date),
 fullAddress: item.full_address,
 district: detectDistrict(item.full_address),
 lat: parseFloat(item.lat),
@@ -963,4 +963,3 @@ loadCasesFromCloud();
 </script>
 </body>
 </html>
-
